@@ -36,6 +36,10 @@ def get_driver(is_headless=False):
     options = webdriver.ChromeOptions()
     if is_headless:
         options.add_argument("--headless=new")
+    
+    options.add_argument("--window-size=1920,1080")
+    user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    options.add_argument(f"user-agent={user_agent}")
     options.add_argument("--blink-settings=imagesEnabled=false")
     options.add_argument("--disable-extensions")
     options.add_argument("--disable-gpu")
@@ -53,8 +57,15 @@ def get_driver(is_headless=False):
     return driver
 
 # функція для обробки групи посилань
-def scrape_batch(urls, is_headless=False, thread_id=1):
-    driver = get_driver(is_headless)
+def scrape_batch(urls, is_headless=False, thread_id=1, external_driver=None):
+    # Якщо передали зовнішній драйвер (для 1 потоку), використовуємо його
+    if external_driver:
+        driver = external_driver
+        owns_driver = False # Прапор, що цей драйвер не треба закривати тут
+    else:
+        driver = get_driver(is_headless)
+        owns_driver = True
+
     batch_data = []
     log(f"Thread-{thread_id}: старт роботи. Посилань: {len(urls)}")
 
@@ -72,7 +83,9 @@ def scrape_batch(urls, is_headless=False, thread_id=1):
                     except:
                         pass
                     time.sleep(2)
+                    # Тут ми змушені створити новий, навіть якщо був external_driver, бо старий "помер"
                     driver = get_driver(is_headless)
+                    owns_driver = True # Тепер ми власники нового драйвера
                     continue
                 else:
                     log(f"Thread-{thread_id}: не вдалося відкрити сторінку: {e}")
@@ -164,7 +177,9 @@ def scrape_batch(urls, is_headless=False, thread_id=1):
 
     finally:
         log(f"Thread-{thread_id}: роботу завершено")
-        driver.quit()
+        # Закриваємо драйвер ТІЛЬКИ якщо ми його створювали всередині цієї функції
+        if owns_driver:
+            driver.quit()
 
     return batch_data
 
@@ -191,7 +206,7 @@ def get_google_maps_data(target_object, target_city, max_results=10, num_threads
     links_to_visit = []
 
     try:
-        log(f"Відкриваю місто {target_city}")
+        log(f"Відкриваю місто: '{target_city}'")
         driver.get(f"https://www.google.com/maps?q={target_city}")
 
         wait = WebDriverWait(driver, 15)
@@ -234,31 +249,38 @@ def get_google_maps_data(target_object, target_city, max_results=10, num_threads
             time.sleep(1.5)
 
         links_to_visit = links_to_visit[:max_results]
-        log(f"Зібрано посилань: {len(links_to_visit)}, запускаю потоки")
+        log(f"Зібрано посилань: {len(links_to_visit)}")
 
     except Exception as e:
         log(f"Критична помилка: {e}")
         driver.quit()
         return pd.DataFrame(), execution_logs
 
-    driver.quit()
-
     if not links_to_visit:
         log("Немає посилань для обробки")
+        driver.quit()
         return pd.DataFrame(), execution_logs
 
-    # розбиваємо посилання на групи для потоків
-    chunk_size = (len(links_to_visit) + num_threads - 1) // num_threads
-    chunks = [links_to_visit[i:i + chunk_size]
-              for i in range(0, len(links_to_visit), chunk_size)]
-
     final_results = []
-    with ThreadPoolExecutor(max_workers=num_threads) as executor:
-        futures = []
-        for i, chunk in enumerate(chunks):
-            futures.append(executor.submit(scrape_batch, chunk, is_headless, i + 1))
-        for future in futures:
-            final_results.extend(future.result())
+
+    if num_threads == 1:
+        log("Режим одного потоку")
+        final_results = scrape_batch(links_to_visit, is_headless, 1, external_driver=driver)
+        driver.quit()
+    else:
+        log("Режим багатьох потоків")
+        driver.quit()
+
+        chunk_size = (len(links_to_visit) + num_threads - 1) // num_threads
+        chunks = [links_to_visit[i:i + chunk_size]
+                  for i in range(0, len(links_to_visit), chunk_size)]
+
+        with ThreadPoolExecutor(max_workers=num_threads) as executor:
+            futures = []
+            for i, chunk in enumerate(chunks):
+                futures.append(executor.submit(scrape_batch, chunk, is_headless, i + 1))
+            for future in futures:
+                final_results.extend(future.result())
 
     duration = time.time() - start_time
     log(f"Загальний час виконання: {duration:.2f} сек")
