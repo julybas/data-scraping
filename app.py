@@ -44,17 +44,27 @@ with st.sidebar:
 
     # якщо в історії щось є, показуємо список результатів
     if st.session_state.history:
-        keys = list(st.session_state.history.keys())[::-1]  # нові зверху
+        keys = list(st.session_state.history.keys())[::-1]
+        index = 0
+        if st.session_state.active_key in keys:
+            index = keys.index(st.session_state.active_key)
+            
         selected_search = st.selectbox(
             "Виберіть результат:",
             options=keys,
-            key="history_selector"  # зв’язуємо selectbox з логікою нижче
+            index=index,
+            key="history_selector"
         )
+        
+        # Оновлюємо активний ключ при ручному виборі
+        if selected_search != st.session_state.active_key:
+             st.session_state.active_key = selected_search
+             st.rerun()
 
-        # кнопка для очищення всієї історії
         if st.button("Очистити історію"):
             st.session_state.history = {}
             st.session_state.active_key = None
+            st.session_state.message = None
             st.rerun()
     else:
         st.info("Історія поки порожня")
@@ -147,6 +157,7 @@ if current_key and current_key in st.session_state.history:
     with tab2:
         # графіки та аналітика
         chart_df = display_df.copy()
+        st.subheader("Аналітика рейтингів")
         if "Рейтинг" in chart_df.columns:
             valid_rating = chart_df[chart_df["Рейтинг"] > 0]
             if not valid_rating.empty:
