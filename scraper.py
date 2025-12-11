@@ -113,12 +113,14 @@ def scrape_batch(urls, is_headless=False, thread_id=1, external_driver=None):
                     EC.presence_of_element_located((By.CSS_SELECTOR, 'div.F7nice'))
                 )
                 full_text = rating_div.get_attribute('textContent')
-                matches = re.findall(r'(\d+[.,]\d+)', full_text)
+                
+                matches = re.findall(r'(\d+[.,]?\d*)', full_text)
                 if matches:
-                    rating_text = f"Зірочок: {matches[0].replace('.', ',')}"
+                    rating_text = matches[0].replace('.', ',')
+                
                 review_match = re.search(r'\((.*?)\)', full_text)
                 if review_match:
-                    reviews_text = review_match.group(1).replace(' ', '')
+                    reviews_text = review_match.group(1).replace(' ', '').replace(u'\xa0', '') # чистка пробілів
             except:
                 pass
 

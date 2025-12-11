@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import io
+import re
 from datetime import datetime
 from scraper import get_google_maps_data
 
@@ -20,6 +21,8 @@ if 'history' not in st.session_state:
     st.session_state.history = {}  # тут будуть всі збережені пошуки
 if 'active_key' not in st.session_state:
     st.session_state.active_key = None  # який пошук зараз відкритий
+if 'message' not in st.session_state:
+    st.session_state.message = None
 
 # бокова панель
 with st.sidebar:
@@ -78,20 +81,18 @@ if submit_button:
                 # встановлюємо цей результат як активний
                 st.session_state.active_key = history_key
                 st.session_state.message = f"Знайдено {len(new_df)} записів! Додано в історію."
-
-                if 'message' in st.session_state:
-                    st.success(st.session_state.message)
-                # del st.session_state.message
-
-                # оновлюємо selectbox, щоб показав новий результат
                 st.rerun()
             else:
                 st.error("Нічого не знайдено.")
     else:
         st.warning("Введіть дані для пошуку.")
 
-# відображення вибраного результату
-current_key = st.session_state.get("history_selector")
+# Відображення повідомлення про успіх (одноразово)
+if st.session_state.message:
+    st.success(st.session_state.message)
+    st.session_state.message = None # Очищаємо, щоб не висіло вічно
+
+current_key = st.session_state.get("active_key")
 
 if current_key and current_key in st.session_state.history:
     data_entry = st.session_state.history[current_key]
@@ -107,39 +108,95 @@ if current_key and current_key in st.session_state.history:
     tab1, tab2 = st.tabs(["Таблиця даних", "Аналітика"])
 
     with tab1:
-        # вибираємо тільки ті колонки, які реально є
+        display_df = df.copy()
+        if "Відгуки" in display_df.columns:
+            display_df["Відгуки"] = (
+                display_df["Відгуки"].astype(str).str.replace(r'\D', '', regex=True) 
+                .replace('', '0') .fillna('0').astype(int)
+            )
+
+        if "Рейтинг" in display_df.columns:
+            display_df["Рейтинг"] = (
+                display_df["Рейтинг"].astype(str).str.extract(r'(\d+[.,]?\d*)')[0]
+                .str.replace(',', '.').fillna('0.0').astype(float)
+            )
+
         cols = ["Назва", "Рейтинг", "Відгуки", "Адреса", "Номер телефону", "Вебсайт"]
-        final_cols = [c for c in cols if c in df.columns]
-        st.dataframe(df[final_cols], use_container_width=True)
+        final_cols = [c for c in cols if c in display_df.columns]
+        st.dataframe(
+            display_df[final_cols], 
+            width='stretch', 
+            column_config={
+                "Вебсайт": st.column_config.LinkColumn(),
+            }
+        )
 
         # кнопки для скачування даних
         file_prefix = current_key.replace(":", "-").replace(" ", "_")
         col1, col2 = st.columns(2)
-        with col1:
-            csv = df[final_cols].to_csv(index=False).encode('utf-8')
-            st.download_button("Скачати CSV", csv, f"{file_prefix}.csv", "text/csv")
-        with col2:
-            buffer = io.BytesIO()
-            with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
-                df[final_cols].to_excel(writer, index=False)
-            st.download_button("Скачати Excel", buffer,
-                               f"{file_prefix}.xlsx", "application/vnd.ms-excel")
+
+        csv = df[final_cols].to_csv(index=False).encode('utf-8')
+        st.download_button("Скачати CSV", csv, f"{file_prefix}.csv", "text/csv")
+
+        buffer = io.BytesIO()
+        with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
+            df[final_cols].to_excel(writer, index=False)
+        st.download_button("Скачати Excel", buffer,
+                            f"{file_prefix}.xlsx", "application/vnd.ms-excel")
 
     with tab2:
         # графіки та аналітика
-        chart_df = df.copy()
+        chart_df = display_df.copy()
         if "Рейтинг" in chart_df.columns:
-            chart_df["Rate_Num"] = pd.to_numeric(
-                chart_df["Рейтинг"].astype(str).str.extract(
-                    r'(\d+[.,]\d+)')[0].str.replace(',', '.'),
-                errors='coerce'
-            )
-            valid_data = chart_df[chart_df["Rate_Num"] > 0]
-            if not valid_data.empty:
-                c1, c2 = st.columns([3, 1])
+            valid_rating = chart_df[chart_df["Рейтинг"] > 0]
+            if not valid_rating.empty:
+                c1, c2 = st.columns([4, 1])
                 with c1:
-                    st.bar_chart(valid_data["Rate_Num"].value_counts().sort_index())
+                    st.bar_chart(valid_rating["Рейтинг"].value_counts().sort_index())
                 with c2:
-                    st.metric("Середній рейтинг", f"{valid_data['Rate_Num'].mean():.2f}")
+                    st.metric("Середній рейтинг", f"{valid_rating['Рейтинг'].mean():.2f}")
+                    st.metric("Кількість закладів", f"{len(valid_rating)}")
             else:
                 st.info("Мало даних для графіка.")
+        
+        st.divider()
+
+        st.subheader("Аналітика відгуків")
+        if "Відгуки" in chart_df.columns:
+            valid_reviews = chart_df[chart_df["Відгуки"] > 0]
+        else:
+            valid_reviews = pd.DataFrame()
+
+        if not valid_reviews.empty:
+            total_rev = valid_reviews["Відгуки"].sum()
+            avg_rev = valid_reviews["Відгуки"].mean()
+            
+            c1, c2 = st.columns([4, 1])
+
+            with c1:
+                sorted_reviews = valid_reviews.sort_values("Відгуки", ascending=False)
+                total_items = len(sorted_reviews)
+                items_per_page = 10
+                
+                # Слайдер
+                if total_items > items_per_page:
+                    start_rank = st.select_slider(
+                        "Виберіть топ місць:",
+                        options=range(1, total_items + 1, items_per_page),
+                        format_func=lambda x: f"Місця {x}-{min(x + items_per_page - 1, total_items)}"
+                    )
+                else:
+                    start_rank = 1
+
+                start_idx = start_rank - 1
+                end_idx = start_idx + items_per_page
+                page_data = sorted_reviews.iloc[start_idx:end_idx]
+                
+                st.caption(f"Список місць: {start_rank} — {min(end_idx, total_items)}")
+                st.bar_chart(page_data.set_index("Назва")["Відгуки"])
+
+            with c2:
+                st.metric("Всього відгуків", f"{total_rev:,}".replace(",", " "))
+                st.metric("Середнє на заклад", f"{int(avg_rev)}")
+        else:
+            st.info("Мало даних для графіка.")
