@@ -53,7 +53,7 @@ def get_driver(is_headless=False):
         service=Service(ChromeDriverManager().install()),
         options=options
     )
-    driver.set_page_load_timeout(20)
+    # driver.set_page_load_timeout(20)
     return driver
 
 def check_city_exists(driver, city_name):

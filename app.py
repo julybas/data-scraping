@@ -72,7 +72,7 @@ with st.sidebar:
 # обробка нового пошуку
 if submit_button:
     if city and obj_name:
-        with st.spinner(f"Збираю дані: {obj_name} у м. {city}..."):
+        with st.spinner(f"Збираю дані: {obj_name} у м. {city}."):
             # виклик скрапера, отримуємо таблицю і логи
             new_df, new_logs = get_google_maps_data(
                 obj_name, city, limit, threads, headless_mode, show_powershell)
@@ -94,6 +94,8 @@ if submit_button:
                 st.rerun()
             else:
                 st.error("Нічого не знайдено.")
+                with st.expander("Деталі пошуку (Logs)", expanded=True):
+                    st.code("\n".join(new_logs), language="log")
     else:
         st.warning("Введіть дані для пошуку.")
 
@@ -149,7 +151,7 @@ if current_key and current_key in st.session_state.history:
 
         buffer = io.BytesIO()
         with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
-            df[final_cols].to_excel(writer, index=False)
+            display_df[final_cols].to_excel(writer, index=False)
         st.download_button("Скачати Excel", buffer,
                            f"{file_prefix}.xlsx", "application/vnd.ms-excel")
 
