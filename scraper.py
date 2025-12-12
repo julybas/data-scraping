@@ -36,8 +36,8 @@ def get_driver(is_headless=False):
     options = webdriver.ChromeOptions()
     if is_headless:
         options.add_argument("--headless=new")
-    
-    options.add_argument("--window-size=1920,1080")
+
+    options.add_argument("--window-size=1080,1920")
     user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
     options.add_argument(f"user-agent={user_agent}")
     options.add_argument("--blink-settings=imagesEnabled=false")
@@ -56,12 +56,21 @@ def get_driver(is_headless=False):
     driver.set_page_load_timeout(20)
     return driver
 
+def check_city_exists(driver, city_name):
+    driver.get(f"https://www.google.com/maps/search/{city_name}")
+    try:
+        WebDriverWait(driver, 5).until(EC.url_contains("/place/"))
+        return True
+    except TimeoutException:
+        log(f"Місто '{city_name}' не знайдено.")
+        return False
+
 # функція для обробки групи посилань
 def scrape_batch(urls, is_headless=False, thread_id=1, external_driver=None):
     # Якщо передали зовнішній драйвер (для 1 потоку), використовуємо його
     if external_driver:
         driver = external_driver
-        owns_driver = False # Прапор, що цей драйвер не треба закривати тут
+        owns_driver = False  # Прапор, що цей драйвер не треба закривати тут
     else:
         driver = get_driver(is_headless)
         owns_driver = True
@@ -85,13 +94,13 @@ def scrape_batch(urls, is_headless=False, thread_id=1, external_driver=None):
                     time.sleep(2)
                     # Тут ми змушені створити новий, навіть якщо був external_driver, бо старий "помер"
                     driver = get_driver(is_headless)
-                    owns_driver = True # Тепер ми власники нового драйвера
+                    owns_driver = True  # Тепер ми власники нового драйвера
                     continue
                 else:
                     log(f"Thread-{thread_id}: не вдалося відкрити сторінку: {e}")
                     continue
 
-            time.sleep(random.uniform(1.5, 3.0))
+            # time.sleep(random.uniform(1.0, 2.0))
 
             # намагаємося взяти назву об'єкта
             try:
@@ -113,14 +122,15 @@ def scrape_batch(urls, is_headless=False, thread_id=1, external_driver=None):
                     EC.presence_of_element_located((By.CSS_SELECTOR, 'div.F7nice'))
                 )
                 full_text = rating_div.get_attribute('textContent')
-                
+
                 matches = re.findall(r'(\d+[.,]?\d*)', full_text)
                 if matches:
                     rating_text = matches[0].replace('.', ',')
-                
+
                 review_match = re.search(r'\((.*?)\)', full_text)
                 if review_match:
-                    reviews_text = review_match.group(1).replace(' ', '').replace(u'\xa0', '') # чистка пробілів
+                    reviews_text = review_match.group(1).replace(
+                        ' ', '').replace(u'\xa0', '')  # чистка пробілів
             except:
                 pass
 
@@ -151,7 +161,7 @@ def scrape_batch(urls, is_headless=False, thread_id=1, external_driver=None):
                     continue
                 if item_id == "address":
                     raw_addr = text.replace('\n', ', ').replace('', '').strip()
-                    address = f"{category} · {raw_addr}" if category else raw_addr
+                    address = f"{category} {raw_addr}" if category else raw_addr
                 elif item_id.startswith("phone:"):
                     phone = item_id.replace("phone:", "").replace("tel:", "").strip()
                 elif item_id == "authority":
@@ -205,11 +215,14 @@ def get_google_maps_data(target_object, target_city, max_results=10, num_threads
     log(f"Параметри пошуку: '{target_object}' у '{target_city}'")
 
     driver = get_driver(is_headless)
+    if not check_city_exists(driver, target_city):
+        driver.quit()
+        return pd.DataFrame(), execution_logs
     links_to_visit = []
 
     try:
         log(f"Відкриваю місто: '{target_city}'")
-        driver.get(f"https://www.google.com/maps?q={target_city}")
+        driver.get(f"https://www.google.com/maps/search/{target_city}")
 
         wait = WebDriverWait(driver, 15)
         search_box = wait.until(EC.element_to_be_clickable((By.ID, "searchboxinput")))
@@ -223,9 +236,25 @@ def get_google_maps_data(target_object, target_city, max_results=10, num_threads
             wait.until(EC.presence_of_element_located(
                 (By.CSS_SELECTOR, 'div[role="feed"]')))
         except TimeoutException:
-            log("Список не встиг завантажитися, повторна спроба")
-            driver.find_element(By.ID, "searchbox-searchbutton").click()
-            time.sleep(3)
+            log("Список не завантажився. Перевіряю наявність помилки пошуку.")
+
+            page_source = driver.page_source
+            if "Google Карти не можуть знайти" in page_source or "Google Maps can't find" in page_source:
+                log(f"За запитом '{target_object}' нічого не знайдено.")
+                driver.quit()
+                return pd.DataFrame(), execution_logs
+
+            try:
+                search_btn = driver.find_element(By.ID, "searchbox-searchbutton")
+                search_btn.click()
+                time.sleep(3)
+                if len(driver.find_elements(By.CSS_SELECTOR, 'div[role="feed"]')) == 0:
+                    driver.quit()
+                    return pd.DataFrame(), execution_logs
+            except:
+                log(f"За запитом '{target_object}' нічого не знайдено.")
+                driver.quit()
+                return pd.DataFrame(), execution_logs
 
         scrollable_div = driver.find_element(By.CSS_SELECTOR, 'div[role="feed"]')
         previous_cnt = 0
@@ -267,7 +296,8 @@ def get_google_maps_data(target_object, target_city, max_results=10, num_threads
 
     if num_threads == 1:
         log("Режим одного потоку")
-        final_results = scrape_batch(links_to_visit, is_headless, 1, external_driver=driver)
+        final_results = scrape_batch(
+            links_to_visit, is_headless, 1, external_driver=driver)
         driver.quit()
     else:
         log("Режим багатьох потоків")

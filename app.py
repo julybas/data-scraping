@@ -48,18 +48,18 @@ with st.sidebar:
         index = 0
         if st.session_state.active_key in keys:
             index = keys.index(st.session_state.active_key)
-            
+
         selected_search = st.selectbox(
             "Виберіть результат:",
             options=keys,
             index=index,
             key="history_selector"
         )
-        
+
         # Оновлюємо активний ключ при ручному виборі
         if selected_search != st.session_state.active_key:
-             st.session_state.active_key = selected_search
-             st.rerun()
+            st.session_state.active_key = selected_search
+            st.rerun()
 
         if st.button("Очистити історію"):
             st.session_state.history = {}
@@ -100,7 +100,7 @@ if submit_button:
 # Відображення повідомлення про успіх (одноразово)
 if st.session_state.message:
     st.success(st.session_state.message)
-    st.session_state.message = None # Очищаємо, щоб не висіло вічно
+    st.session_state.message = None  # Очищаємо, щоб не висіло вічно
 
 current_key = st.session_state.get("active_key")
 
@@ -121,7 +121,7 @@ if current_key and current_key in st.session_state.history:
         display_df = df.copy()
         if "Відгуки" in display_df.columns:
             display_df["Відгуки"] = (
-                display_df["Відгуки"].astype(str).str.replace(r'\D', '', regex=True) 
+                display_df["Відгуки"].astype(str).str.replace(r'\D', '', regex=True)
                 .replace('', '0') .fillna('0').astype(int)
             )
 
@@ -134,16 +134,15 @@ if current_key and current_key in st.session_state.history:
         cols = ["Назва", "Рейтинг", "Відгуки", "Адреса", "Номер телефону", "Вебсайт"]
         final_cols = [c for c in cols if c in display_df.columns]
         st.dataframe(
-            display_df[final_cols], 
-            width='stretch', 
+            display_df[final_cols],
+            width='stretch',
             column_config={
                 "Вебсайт": st.column_config.LinkColumn(),
             }
         )
 
         # кнопки для скачування даних
-        file_prefix = current_key.replace(":", "-").replace(" ", "_")
-        col1, col2 = st.columns(2)
+        file_prefix = current_key.replace(":", "-").replace(" ", "")
 
         csv = df[final_cols].to_csv(index=False).encode('utf-8')
         st.download_button("Скачати CSV", csv, f"{file_prefix}.csv", "text/csv")
@@ -152,7 +151,7 @@ if current_key and current_key in st.session_state.history:
         with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
             df[final_cols].to_excel(writer, index=False)
         st.download_button("Скачати Excel", buffer,
-                            f"{file_prefix}.xlsx", "application/vnd.ms-excel")
+                           f"{file_prefix}.xlsx", "application/vnd.ms-excel")
 
     with tab2:
         # графіки та аналітика
@@ -165,11 +164,12 @@ if current_key and current_key in st.session_state.history:
                 with c1:
                     st.bar_chart(valid_rating["Рейтинг"].value_counts().sort_index())
                 with c2:
-                    st.metric("Середній рейтинг", f"{valid_rating['Рейтинг'].mean():.2f}")
+                    st.metric("Середній рейтинг",
+                              f"{valid_rating['Рейтинг'].mean():.2f}")
                     st.metric("Кількість закладів", f"{len(valid_rating)}")
             else:
                 st.info("Мало даних для графіка.")
-        
+
         st.divider()
 
         st.subheader("Аналітика відгуків")
@@ -181,14 +181,14 @@ if current_key and current_key in st.session_state.history:
         if not valid_reviews.empty:
             total_rev = valid_reviews["Відгуки"].sum()
             avg_rev = valid_reviews["Відгуки"].mean()
-            
+
             c1, c2 = st.columns([4, 1])
 
             with c1:
                 sorted_reviews = valid_reviews.sort_values("Відгуки", ascending=False)
                 total_items = len(sorted_reviews)
                 items_per_page = 10
-                
+
                 # Слайдер
                 if total_items > items_per_page:
                     start_rank = st.select_slider(
@@ -202,7 +202,7 @@ if current_key and current_key in st.session_state.history:
                 start_idx = start_rank - 1
                 end_idx = start_idx + items_per_page
                 page_data = sorted_reviews.iloc[start_idx:end_idx]
-                
+
                 st.caption(f"Список місць: {start_rank} — {min(end_idx, total_items)}")
                 st.bar_chart(page_data.set_index("Назва")["Відгуки"])
 
