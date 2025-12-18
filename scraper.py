@@ -183,7 +183,7 @@ def scrape_batch(urls, is_headless=False, thread_id=1, external_driver=None):
                 "Рейтинг": rating_text,
                 "Відгуки": reviews_text,
                 "Адреса": address,
-                "Номер телефону": phone,
+                "Номер тел": phone,
                 "Вебсайт": website
             })
 

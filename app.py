@@ -117,14 +117,19 @@ if current_key and current_key in st.session_state.history:
     with st.expander("Системний журнал (Logs)", expanded=False):
         st.code("\n".join(logs), language="log")
 
-    tab1, tab2 = st.tabs(["Таблиця даних", "Аналітика"])
+    view_mode = st.radio(
+        "Режим перегляду:",
+        ["Таблиця даних", "Аналітика"],
+        horizontal=True,
+        key="view_mode_radio"
+    )
 
-    with tab1:
+    if view_mode == "Таблиця даних":
         display_df = df.copy()
         if "Відгуки" in display_df.columns:
             display_df["Відгуки"] = (
                 display_df["Відгуки"].astype(str).str.replace(r'\D', '', regex=True)
-                .replace('', '0') .fillna('0').astype(int)
+                .replace('', '0').fillna('0').astype(int)
             )
 
         if "Рейтинг" in display_df.columns:
@@ -133,7 +138,7 @@ if current_key and current_key in st.session_state.history:
                 .str.replace(',', '.').fillna('0.0').astype(float)
             )
 
-        cols = ["Назва", "Рейтинг", "Відгуки", "Адреса", "Номер телефону", "Вебсайт"]
+        cols = ["Назва", "Рейтинг", "Відгуки", "Адреса", "Номер тел", "Вебсайт"]
         final_cols = [c for c in cols if c in display_df.columns]
         st.dataframe(
             display_df[final_cols],
@@ -155,9 +160,21 @@ if current_key and current_key in st.session_state.history:
         st.download_button("Скачати Excel", buffer,
                            f"{file_prefix}.xlsx", "application/vnd.ms-excel")
 
-    with tab2:
-        # графіки та аналітика
-        chart_df = display_df.copy()
+    elif view_mode == "Аналітика":
+        chart_df = df.copy()
+
+        # Обробка для графіків
+        if "Відгуки" in chart_df.columns:
+            chart_df["Відгуки"] = (
+                chart_df["Відгуки"].astype(str).str.replace(r'\D', '', regex=True)
+                .replace('', '0').fillna('0').astype(int)
+            )
+        if "Рейтинг" in chart_df.columns:
+            chart_df["Рейтинг"] = (
+                chart_df["Рейтинг"].astype(str).str.extract(r'(\d+[.,]?\d*)')[0]
+                .str.replace(',', '.').fillna('0.0').astype(float)
+            )
+
         st.subheader("Аналітика рейтингів")
         if "Рейтинг" in chart_df.columns:
             valid_rating = chart_df[chart_df["Рейтинг"] > 0]
@@ -196,7 +213,8 @@ if current_key and current_key in st.session_state.history:
                     start_rank = st.select_slider(
                         "Виберіть топ місць:",
                         options=range(1, total_items + 1, items_per_page),
-                        format_func=lambda x: f"Місця {x}-{min(x + items_per_page - 1, total_items)}"
+                        format_func=lambda x: f"Місця {x}-{min(x + items_per_page - 1, total_items)}",
+                        key="analytics_slider_fix"
                     )
                 else:
                     start_rank = 1
@@ -205,7 +223,6 @@ if current_key and current_key in st.session_state.history:
                 end_idx = start_idx + items_per_page
                 page_data = sorted_reviews.iloc[start_idx:end_idx]
 
-                st.caption(f"Список місць: {start_rank} — {min(end_idx, total_items)}")
                 st.bar_chart(page_data.set_index("Назва")["Відгуки"])
 
             with c2:
